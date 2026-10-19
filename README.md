@@ -1,34 +1,33 @@
 # ScriptPort
 
-A dependency-free, responsive GitHub Pages website that generates Roblox script loaders. Includes URL validation, GitHub-to-raw conversion, two loader formats, copy, and Lua download. The website does not fetch, validate availability of, store, or execute scripts.
+A public Lua/Luau paste publisher. Paste or import a script up to 2 MiB, publish it, and copy a loadstring pointing at the saved raw source.
 
-## Publish on GitHub Pages
+## Hosting
 
-1. Create a GitHub repository and upload index.html, style.css, app.js, and .nojekyll to its root.
-2. Open repository Settings > Pages.
-3. Select Deploy from a branch, choose main and / (root), then Save.
-4. Open the URL GitHub displays when deployment finishes.
+Frontend: https://neeuqpart.github.io/LoadstringSite/
+Storage API: https://scriptport-pastes.airyseal4.chatgpt.site
 
-Reference: https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
+GitHub Pages serves index.html, style.css, and app.js from main / (root). The server backend uses Cloudflare R2 for script bodies and D1 for upload counters, deployed through Sites. GitHub Pages alone cannot store anonymous uploads or serve dynamic raw routes.
 
-No build command, backend, API key, or dependencies are required. Relative asset paths work with project Pages URLs.
+## Features
 
-## Host your scripts
+- Public publishing without an account
+- 2 MiB UTF-8 script limit; .lua/.luau/.txt file imports
+- Line numbers and byte/line counters
+- Local draft recovery
+- Copyable HttpGet or Roblox Studio server loadstrings
+- Raw script links and script downloads
+- Recent pastes and deletion keys saved in the publishing browser
+- 20 uploads/hour and 100/day per connection; shared service cap 1,000/day
 
-Add scripts/example.lua to the same repository. Its published URL is https://YOUR-NAME.github.io/YOUR-REPO/scripts/example.lua. Paste that URL into the tool, or use a public GitHub file URL. Never point a loader at index.html: the loader needs Lua source, not a webpage.
+Scripts are stored as text and never executed by this website. Anyone with a raw link can read the source. Links are unlisted, not private. Recent pastes and deletion keys are browser-local; clearing browser storage removes those records and the ability to delete them through this UI. Save important source code separately. There is no automatic expiry or uptime/permanent-retention guarantee.
 
-For GitHub branches containing slashes, paste the file's Raw URL to avoid ambiguous branch/path interpretation. For fixed script versions, use a raw URL containing the commit SHA rather than a moving branch name. Public hosting exposes source code; it does not hide or protect it.
+HttpGet format requires an environment that supplies game:HttpGet and loadstring. Studio format runs in a server Script in your own experience and requires HTTP requests and ServerScriptService.LoadStringEnabled. Only execute trusted source.
 
-## Roblox environments
+Generated format:
 
-The Studio format uses HttpService:GetAsync and loadstring in a server Script in your own experience. Enable HTTP requests and ServerScriptService.LoadStringEnabled in Studio. Only run trusted source code.
+    loadstring(game:HttpGet("https://scriptport-pastes.airyseal4.chatgpt.site/raw/PASTE_ID"))()
 
-The game:HttpGet format requires a compatible environment; it is not an ordinary Roblox LocalScript API. Generation does not prove runtime compatibility or script availability.
+## Validation
 
-Documentation:
-- https://create.roblox.com/docs/reference/engine/classes/HttpService
-- https://create.roblox.com/docs/reference/engine/classes/ServerScriptService/LoadStringEnabled
-
-## Customize
-
-Change the name and text in index.html and the colors in style.css. All application logic lives in app.js. User input is displayed as text, never inserted as HTML.
+Backend type check and production build; local exact round trip of a 1.45 MB Unicode script; raw Content-Type; CORS; wrong deletion-key rejection; successful deletion and subsequent 404; oversized, empty, and foreign-origin rejection. No submitted scripts are executed during verification.
