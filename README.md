@@ -1,33 +1,37 @@
-# ScriptPort
+# ScriptPort — personal GitHub publisher
 
-A public Lua/Luau paste publisher. Paste or import a script up to 2 MiB, publish it, and copy a loadstring pointing at the saved raw source.
+Website: https://neeuqpart.github.io/LoadstringSite/
+Repository: https://github.com/neeuqpart/LoadstringSite
 
-## Hosting
+Paste or import a Lua/Luau script up to 2 MiB. ScriptPort saves it in scripts/ in this repository and generates a loader using raw.githubusercontent.com. No separate storage backend is used.
 
-Frontend: https://neeuqpart.github.io/LoadstringSite/
-Storage API: https://scriptport-pastes.airyseal4.chatgpt.site
+## Connect your GitHub account
 
-GitHub Pages serves index.html, style.css, and app.js from main / (root). The server backend uses Cloudflare R2 for script bodies and D1 for upload counters, deployed through Sites. GitHub Pages alone cannot store anonymous uploads or serve dynamic raw routes.
+1. On GitHub, create a fine-grained personal access token with resource owner neeuqpart.
+2. Select only the LoadstringSite repository.
+3. Grant Contents: Read and write repository permission; choose an expiry.
+4. Paste the token into the site's GitHub connection field and connect.
+
+The app verifies that the token belongs to neeuqpart. Repository writes are authorized by GitHub itself. The token is sent only to api.github.com and held in memory for the current tab. It is never stored in localStorage, committed to this repository, embedded in raw links, or sent to a separate backend. Refreshing or disconnecting requires reconnecting. Do not share the token.
+
+Visitors without your GitHub credentials cannot publish. The GitHub Pages interface and repository source remain public, and anyone can read or run scripts available through public raw links. A private repository's authenticated raw URLs are unsuitable for a public Roblox loadstring.
 
 ## Features
 
-- Public publishing without an account
-- 2 MiB UTF-8 script limit; .lua/.luau/.txt file imports
-- Line numbers and byte/line counters
-- Local draft recovery
-- Copyable HttpGet or Roblox Studio server loadstrings
-- Raw script links and script downloads
-- Recent pastes and deletion keys saved in the publishing browser
-- 20 uploads/hour and 100/day per connection; shared service cap 1,000/day
+- Paste or import .lua/.luau/.txt files, up to 2 MiB
+- UTF-8 uploads, line numbers, line and byte counters
+- Drafts saved on the current browser
+- GitHub-backed script list after connecting (up to GitHub Contents API directory limit)
+- Copy loadstrings and raw links, download scripts
+- HttpGet and Roblox Studio server formats
+- Manage links open the source file in GitHub for editing or removal
 
-Scripts are stored as text and never executed by this website. Anyone with a raw link can read the source. Links are unlisted, not private. Recent pastes and deletion keys are browser-local; clearing browser storage removes those records and the ability to delete them through this UI. Save important source code separately. There is no automatic expiry or uptime/permanent-retention guarantee.
+Titles are also saved locally for display; filenames include a readable title and a random identifier. Script bodies are stored unchanged as UTF-8. Deleting a file from the current branch does not erase its Git history. GitHub raw links may take a short time to become available after publishing.
 
-HttpGet format requires an environment that supplies game:HttpGet and loadstring. Studio format runs in a server Script in your own experience and requires HTTP requests and ServerScriptService.LoadStringEnabled. Only execute trusted source.
+The website never executes uploaded scripts. HttpGet requires a compatible runtime; ordinary Roblox LocalScripts do not provide it. Studio format requires HTTP requests and ServerScriptService.LoadStringEnabled in a server Script in your own experience.
 
-Generated format:
+The previous public upload backend has been restricted to its owner. Existing backend data was not deleted. New scripts and loadstrings use GitHub exclusively.
 
-    loadstring(game:HttpGet("https://scriptport-pastes.airyseal4.chatgpt.site/raw/PASTE_ID"))()
+## Publish the interface
 
-## Validation
-
-Backend type check and production build; local exact round trip of a 1.45 MB Unicode script; raw Content-Type; CORS; wrong deletion-key rejection; successful deletion and subsequent 404; oversized, empty, and foreign-origin rejection. No submitted scripts are executed during verification.
+GitHub Pages uses main / (root). index.html, style.css, and app.js are dependency-free static files. Do not commit access tokens.
