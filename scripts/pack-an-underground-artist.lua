@@ -19271,6 +19271,7 @@ end
 
 local function disable(feature)
     feature.enabled = false
+    if feature.stop then pcall(feature.stop) end
     if feature.toggle then feature.toggle:Set(false) end
 end
 
@@ -19292,7 +19293,7 @@ local function cleanup(fromWindow)
     purchaseAuditCleanup()
     if adminPanel and adminPanel.cleanup then pcall(adminPanel.cleanup); adminPanel = nil end
     disconnectAntiAfk()
-    for _, feature in ipairs(features) do feature.enabled = false end
+    for _, feature in ipairs(features) do feature.enabled = false; if feature.stop then pcall(feature.stop) end end
     for _, connection in ipairs(connections) do connection:Disconnect() end
     table.clear(connections)
     if lifecycleMarker then lifecycleMarker:Destroy(); lifecycleMarker = nil end
@@ -19911,6 +19912,18 @@ local ok, setupError = xpcall(function()
         return type(data) == "table" and type(data[field]) == "table" and data[field] or nil
     end
     local function nextOwnedPack(counts, now)
+        -- New inventory pack types join the rotation without restarting NOVA.
+        for name in pairs(counts) do
+            if type(name) == "string" and selected[name] == nil then
+                selected[name] = true
+                table.insert(packNames, name)
+            end
+        end
+        table.sort(packNames, function(a, b)
+            local left, right = packOdds[a] or 1, packOdds[b] or 1
+            if left == right then return a < b end
+            return left > right
+        end)
         for _, name in ipairs(packNames) do
             if selected[name] and (tonumber(counts[name]) or 0) > 0 and now >= (packRetryAfter[name] or 0) then
                 return name
@@ -19990,6 +20003,59 @@ local ok, setupError = xpcall(function()
             end},
     }
 
+    local meteorHumanoid
+    local function stopMeteorWalk()
+        if meteorHumanoid and meteorHumanoid.Parent and meteorHumanoid.RootPart then
+            meteorHumanoid:MoveTo(meteorHumanoid.RootPart.Position)
+        end
+        meteorHumanoid = nil
+    end
+    local function meteorWalk()
+        local feature = features[5]
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local position = RS:GetAttribute("MeteorPos")
+        local impact = RS:GetAttribute("MeteorImpact")
+        if not humanoid or not root or humanoid.Health <= 0 then
+            return false, "LOCAL_SKIP", "Waiting for character"
+        end
+        if typeof(position) ~= "Vector3" or type(impact) ~= "number" or workspace:GetServerTimeNow() > impact + 0.8 then
+            stopMeteorWalk()
+            return false, "LOCAL_SKIP", "Waiting for the next meteor circle"
+        end
+        local function valid()
+            return alive and feature.enabled and player.Character == character and humanoid.Health > 0
+                and RS:GetAttribute("MeteorImpact") == impact and workspace:GetServerTimeNow() <= impact + 0.8
+        end
+        meteorHumanoid = humanoid
+        local delta = root.Position - position
+        local radius = tonumber(RS:GetAttribute("MeteorRadius")) or 5
+        if Vector3.new(delta.X, 0, delta.Z).Magnitude <= math.max(1, math.min(3, radius * 0.4)) then
+            stopMeteorWalk()
+            return false, "LOCAL_SKIP", "Inside circle; waiting for impact"
+        end
+        local path = game:GetService("PathfindingService"):CreatePath({AgentCanJump = true})
+        local computed = pcall(function() path:ComputeAsync(root.Position, position) end)
+        if not valid() then stopMeteorWalk(); return false, "LOCAL_SKIP", "Target changed or paused" end
+        if not computed or path.Status ~= Enum.PathStatus.Success then
+            stopMeteorWalk()
+            return false, "LOCAL_SKIP", "No walkable route; retrying"
+        end
+        for _, waypoint in ipairs(path:GetWaypoints()) do
+            if not valid() then break end
+            if waypoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+            humanoid:MoveTo(waypoint.Position)
+            local deadline = os.clock() + 3
+            while valid() and os.clock() < deadline and (root.Position - waypoint.Position).Magnitude > 2 do task.wait(0.05) end
+            if (root.Position - waypoint.Position).Magnitude > 2 then break end
+        end
+        stopMeteorWalk()
+        return false, "LOCAL_SKIP", "Checking meteor circle"
+    end
+    table.insert(features, {title = "Auto Meteor Walk", icon = "footprints", enabled = false,
+        worker = false, calls = 0, delay = 0.25, last = "Ready", call = meteorWalk, stop = stopMeteorWalk})
     refresh = function()
         if not alive or window.Destroyed then return end
         local active, requests = 0, 0
@@ -20064,6 +20130,7 @@ local ok, setupError = xpcall(function()
         "Open your rarest owned pack first, then work down. No added delay after successful requests.",
         "Trade matching copies of every eligible card, across the rarities selected in Trading. Consumes cards.",
         "Attempt rebirth every 5 seconds. Rebirth happens as soon as the server allows it and applies the normal cost/reset.",
+        "Walk to meteor circles and wait for impact using pathfinding. F8 stops walking.",
     }
     local controlRow
     for index, feature in ipairs(features) do
@@ -20121,7 +20188,7 @@ local ok, setupError = xpcall(function()
     dashboard:Paragraph({Title = "ALWAYS WITHIN REACH", Desc = "F8  /  Pause everything     P  /  Pause trading\nRight Ctrl  /  Hide or show NOVA", Icon="keyboard"})
 
     packsTab:Section({Title = "BUILD YOUR ROTATION", TextSize = 23})
-    packsTab:Paragraph({Title = tostring(#packNames) .. " packs. Rarest first.", Desc = "Sorted by the game's pack drop rarity (1-in-X odds). Opens the highest selected pack you own before moving down, including event packs. Enable Auto Open Packs on Dashboard to start."})
+    packsTab:Paragraph({Title = tostring(#packNames) .. " packs. Rarest first.", Desc = "Sorted by the game's pack drop rarity (1-in-X odds). Opens the highest selected pack you own before moving down, including event packs. Newly acquired pack types are included automatically; reload for their individual checkboxes. Enable Auto Open Packs on Dashboard to start."})
     local packControls = {}
     local packRow
     for index, name in ipairs(packNames) do
@@ -20135,10 +20202,10 @@ local ok, setupError = xpcall(function()
     packsTab:Space()
     local packActions = packsTab:Group({})
     packActions:Button({Title = "Select all packs", Icon = "list-check", Callback = function()
-        for _, name in ipairs(packNames) do selected[name] = true; packControls[name]:Set(true) end
+        for _, name in ipairs(packNames) do selected[name] = true; if packControls[name] then packControls[name]:Set(true) end end
     end})
     packActions:Button({Title = "Clear selection", Icon = "list-x", Callback = function()
-        for _, name in ipairs(packNames) do selected[name] = false; packControls[name]:Set(false) end
+        for _, name in ipairs(packNames) do selected[name] = false; if packControls[name] then packControls[name]:Set(false) end end
     end})
 
     tradeTab:Section({Title = "UPGRADE YOUR COLLECTION", TextSize = 23})
@@ -20417,4 +20484,3 @@ if not ok then
     error(setupError)
 end
 return {loaded = true, startupAutomation = true, cleanup = cleanup}
-
