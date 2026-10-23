@@ -8,7 +8,7 @@ assert(game:GetService("Players").LocalPlayer, "NOVA must run on a Roblox client
 print("[NOVA] Starting Atmosphere build 2026-10-16.3")
 
 -- NOVA / NEBULA -- WindUI edition
--- Build 2026-10-16.3 -- Atmosphere + Purchase Audit; load the complete file.
+-- Build 2026-10-16.3 -- Atmosphere; load the complete file.
 -- F8: stop all | P: stop trading | Right Ctrl: toggle window
 -- Startup: Low Detail, Auto Roll, Auto Open Packs and Auto Rebirth ON. F8 pauses automation.
 -- Optional lifecycle argument is supplied by the Real integration wrapper.
@@ -19183,7 +19183,6 @@ local adminBusy = false
 local adminGeneration = 0
 local previewCleanup = function() end
 local atmosphereCleanup = function() end
-local purchaseAuditCleanup = function() end
 local spyState
 local spyLoading, spyLoaded = false, false
 local refresh = function() end
@@ -19322,7 +19321,6 @@ local function cleanup(fromWindow)
     setLowDetail(false)
     previewCleanup()
     atmosphereCleanup()
-    purchaseAuditCleanup()
     if adminPanel and adminPanel.cleanup then pcall(adminPanel.cleanup); adminPanel = nil end
     disconnectAntiAfk()
     for _, feature in ipairs(features) do feature.enabled = false; if feature.stop then pcall(feature.stop) end end
@@ -19396,143 +19394,6 @@ local ok, setupError = xpcall(function()
     local adminTab = createTab("Admin Panel", "shield", Color3.fromRGB(255,100,135))
     local previewTab = createTab("Card Preview", "image", Color3.fromRGB(125,195,255))
     local appearanceTab = createTab("Appearance", "palette", palettes.Moonlit.accent)
-    local purchaseTab = createTab("Purchase Audit", "receipt", palettes.Honeyglow.accent)
-
-    do
-        local marketplace = game:GetService("MarketplaceService")
-        local localPlayer = game:GetService("Players").LocalPlayer
-        purchaseTab:Section({Title = "Understand your purchase flow.", TextSize = 25})
-        purchaseTab:Paragraph({Title = "PURCHASE INSPECTOR", Desc = "Browse product IDs, inspect public metadata and log purchase prompt results. A prompt result is not a verified server receipt."})
-        local auditStatus = purchaseTab:Paragraph({Title = "READY", Desc = "Scan the current game's catalog, or enter an ID to inspect."})
-        local selectionSection = purchaseTab:Section({Title = "CATALOG", Box = true, BoxBorder = true, Opened = true})
-        local catalogPicker
-        local selectedId, selectedKind = 0, "Product"
-        local manualKind = "Product"
-        local scanning, inspecting = false, false
-        local function scanCatalog()
-            if scanning or not alive then return end
-            scanning = true
-            auditStatus:SetTitle("READING CATALOG")
-            task.spawn(function()
-                local labels, catalog, seen = {}, {}, {}
-                local function add(kind, id, name)
-                    id = tonumber(id)
-                    if not id or id <= 0 or id % 1 ~= 0 then return end
-                    local key = kind .. ":" .. tostring(id)
-                    if seen[key] then return end
-                    seen[key] = true
-                    local label = tostring(name or kind) .. "  /  " .. kind .. "  [" .. tostring(id) .. "]"
-                    catalog[label] = {id=id, kind=kind}
-                    table.insert(labels, label)
-                end
-                local configOk, configError = pcall(function()
-                    local module = RS:FindFirstChild("CardConfig")
-                    assert(module, "CardConfig unavailable")
-                    local config = (require :: any)(module)
-                    for key, value in pairs(config) do
-                        if type(key) == "string" and type(value) == "number" then
-                            if key:match("_PASS$") then add("Gamepass", value, key)
-                            elseif key:match("_PRODUCT$") then add("Product", value, key) end
-                        elseif type(value) == "table" then
-                            for _, item in ipairs(value) do
-                                if type(item) == "table" then add("Product", item.Product or item.ProductId, key .. " " .. tostring(item.Amount or item.Name or "")) end
-                            end
-                        end
-                    end
-                end)
-                local productsOk, productsError = pcall(function()
-                    local pages = marketplace:GetDeveloperProductsAsync()
-                    for _ = 1, 10 do
-                        if not alive then return end
-                        for _, item in ipairs(pages:GetCurrentPage()) do
-                            add("Product", item.ProductId or item.DeveloperProductId, item.Name or item.DisplayName)
-                        end
-                        if pages.IsFinished then break end
-                        pages:AdvanceToNextPageAsync()
-                    end
-                end)
-                scanning = false
-                if not alive then return end
-                table.sort(labels)
-                if catalogPicker then catalogPicker:Destroy(); catalogPicker = nil end
-                if #labels > 0 then
-                    catalogPicker = selectionSection:Dropdown({Title = "Choose a product or pass", Values = labels, SearchBarEnabled = true,
-                        Callback = function(value)
-                            local item = catalog[value]
-                            if item then
-                                selectedId, selectedKind = item.id, item.kind
-                                auditStatus:SetTitle("SELECTED  /  " .. tostring(item.id))
-                                auditStatus:SetDesc(value .. "\nUse Inspect selected ID below.")
-                            end
-                        end})
-                end
-                auditStatus:SetTitle(tostring(#labels) .. " CATALOG ENTRIES")
-                auditStatus:SetDesc("IDs from the replicated configuration and up to 10 product pages. Select an entry to inspect it."
-                    .. (not configOk and "\nConfiguration: " .. tostring(configError):sub(1,120) or "")
-                    .. (not productsOk and "\nProduct listing unavailable: " .. tostring(productsError):sub(1,120) or ""))
-            end)
-        end
-        purchaseTab:Button({Title = "Scan product catalog", Icon = "search", Callback = scanCatalog})
-        purchaseTab:Input({Title = "Or enter a product / pass ID", Desc = "Digits only. Select its type below.", Callback = function(value)
-            selectedId = tonumber(tostring(value or ""):match("^%s*(%d+)%s*$")) or 0
-            selectedKind = manualKind
-        end})
-        purchaseTab:Dropdown({Title = "Manual ID type", Values = {"Product", "Gamepass"}, Value = "Product",
-            Callback = function(value) if value == "Product" or value == "Gamepass" then manualKind = value; selectedKind = value end end})
-        purchaseTab:Button({Title = "Inspect selected ID", Desc = "Read metadata; gamepass checks also ask Roblox about ownership.", Icon = "info", Callback = function()
-            if inspecting or not alive then return end
-            if selectedId <= 0 then notify("Choose an ID", "Select a catalog entry or enter a valid ID first."); return end
-            inspecting = true
-            local id, kind = selectedId, selectedKind
-            task.spawn(function()
-                local ok, info = pcall(function() return marketplace:GetProductInfoAsync(id, kind == "Gamepass" and Enum.InfoType.GamePass or Enum.InfoType.Product) end)
-                local ownedOk, owned = false, false
-                if kind == "Gamepass" then ownedOk, owned = pcall(function() return marketplace:UserOwnsGamePassAsync(localPlayer.UserId, id) end) end
-                inspecting = false
-                if not alive then return end
-                if ok and type(info) == "table" then
-                    auditStatus:SetTitle(tostring(info.Name or info.DisplayName or id))
-                    auditStatus:SetDesc(kind .. "  /  ID " .. tostring(id) .. "\nPrice: " .. tostring(info.PriceInRobux or "Unavailable") .. " Robux"
-                        .. (kind == "Gamepass" and ("\nRoblox ownership: " .. (ownedOk and (owned and "Owned" or "Not owned") or "Check unavailable")) or "\nDeveloper product receipts must be verified on the server."))
-                else
-                    auditStatus:SetTitle("INSPECTION FAILED")
-                    auditStatus:SetDesc(tostring(info):sub(1,240))
-                end
-            end)
-        end})
-        purchaseTab:Section({Title = "PURCHASE EVENT LOG", TextSize = 17})
-        local eventRows = purchaseTab:Paragraph({Title = "LOGGER OFF", Desc = "Logs prompt completion events for your account. These are not proof of payment or reward delivery."})
-        local auditConnections, eventLog = {}, {}
-        local function stopLogger()
-            for _, connection in ipairs(auditConnections) do connection:Disconnect() end
-            table.clear(auditConnections)
-        end
-        purchaseAuditCleanup = stopLogger
-        local function record(kind, id, purchased)
-            if not alive then return end
-            table.insert(eventLog, 1, os.date("%H:%M:%S") .. "  " .. kind .. " " .. tostring(id) .. "\n" .. (purchased and "Prompt reported purchased; server receipt / reward unverified." or "Prompt closed without a reported purchase."))
-            while #eventLog > 12 do table.remove(eventLog) end
-            eventRows:SetDesc(table.concat(eventLog, "\n\n"))
-        end
-        purchaseTab:Toggle({Title = "Log purchase prompt results", Icon = "list", Value = false, Callback = function(value)
-            stopLogger()
-            if value ~= true or not alive then eventRows:SetTitle("LOGGER OFF"); return end
-            pcall(function()
-                table.insert(auditConnections, marketplace.PromptProductPurchaseFinished:Connect(function(userId, id, purchased)
-                    if userId == localPlayer.UserId then record("Product", id, purchased) end
-                end))
-            end)
-            pcall(function()
-                table.insert(auditConnections, marketplace.PromptGamePassPurchaseFinished:Connect(function(player, id, purchased)
-                    if player == localPlayer then record("Gamepass", id, purchased) end
-                end))
-            end)
-            eventRows:SetTitle(#auditConnections > 0 and "LOGGER ON" or "LOGGER UNAVAILABLE")
-            if #auditConnections == 0 then eventRows:SetDesc("This executor could not subscribe to the purchase events.") end
-        end})
-        purchaseTab:Button({Title = "Clear purchase log", Icon = "trash-2", Callback = function() table.clear(eventLog); eventRows:SetDesc("Log cleared.") end})
-    end
-
     -- Decorative layers stay below all controls; motion uses a bounded set of tweens.
     local TweenService = game:GetService("TweenService")
     local currentPalette = "Moonlit"
