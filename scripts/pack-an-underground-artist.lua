@@ -19188,6 +19188,35 @@ local spyState
 local spyLoading, spyLoaded = false, false
 local refresh = function() end
 local antiAfk = {enabled = false, connection = nil, toggle = nil, pulses = 0, panel = nil}
+local noclip = {connection = nil, toggle = nil, saved = {}}
+local function stopNoclip()
+    if noclip.connection then noclip.connection:Disconnect(); noclip.connection = nil end
+    for part, original in pairs(noclip.saved) do
+        if part.Parent then part.CanCollide = original end
+    end
+    table.clear(noclip.saved)
+end
+local function startNoclip()
+    stopNoclip()
+    noclip.connection = game:GetService("RunService").Stepped:Connect(function()
+        if not alive then return end
+        local character = game:GetService("Players").LocalPlayer.Character
+        for part, original in pairs(noclip.saved) do
+            if not character or not part:IsDescendantOf(character) then
+                if part.Parent then part.CanCollide = original end
+                noclip.saved[part] = nil
+            end
+        end
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if noclip.saved[part] == nil then noclip.saved[part] = part.CanCollide end
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
 
 -- Save only properties we change; restore them when disabled or unloaded.
 local lowDetail: any = {enabled = false, generation = 0, connections = {}, saved = setmetatable({}, {__mode = "k"})}
@@ -19277,6 +19306,8 @@ end
 
 local function stopAll()
     for _, feature in ipairs(features) do disable(feature) end
+    stopNoclip()
+    if noclip.toggle then noclip.toggle:Set(false) end
     disconnectAntiAfk()
     if antiAfk.toggle then antiAfk.toggle:Set(false) end
     log("All automation paused.")
@@ -19287,6 +19318,7 @@ local function cleanup(fromWindow)
     if not alive then return end
     if uiIdentity and type(setthreadidentity) == "function" then setthreadidentity(uiIdentity) end
     alive = false
+    stopNoclip()
     setLowDetail(false)
     previewCleanup()
     atmosphereCleanup()
@@ -20182,6 +20214,15 @@ local ok, setupError = xpcall(function()
             end
             log("Anti AFK " .. (antiAfk.enabled and "enabled." or "disabled."))
             refresh()
+        end,
+    })
+    noclip.toggle = dashboard:Toggle({
+        Title = "Noclip", Desc = "Walk through walls. F8 turns this off and restores collisions.",
+        Icon = "footprints", Value = false,
+        Callback = function(value)
+            if not alive then return end
+            if value == true then startNoclip() else stopNoclip() end
+            log("Noclip " .. (value == true and "enabled." or "disabled."))
         end,
     })
     dashboard:Button({Title = "Teleport to Stage", Desc = "Go to the castle stage. Pauses Auto Meteor Walk.", Icon = "map-pin", Callback = function()
