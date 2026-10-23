@@ -20184,6 +20184,34 @@ local ok, setupError = xpcall(function()
             refresh()
         end,
     })
+    dashboard:Button({Title = "Teleport to Stage", Desc = "Go to the castle stage. Pauses Auto Meteor Walk.", Icon = "map-pin", Callback = function()
+        if not alive then return end
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local castle = workspace:FindFirstChild("CastleInterior")
+        local stage = castle and castle:FindFirstChild("Stage")
+        local platform = stage and stage:FindFirstChild("PlatformTop")
+        if not character or not humanoid or humanoid.Health <= 0 or not root then
+            notify("Stage teleport", "Wait for your character to spawn.")
+            return
+        end
+        if not platform or not platform:IsA("BasePart") then
+            notify("Stage teleport", "Stage platform is not loaded. Try again nearby.")
+            return
+        end
+        if features[5] then disable(features[5]) end
+        local height = platform.Size.Y / 2 + humanoid.HipHeight + root.Size.Y / 2 + 1
+        local target = platform.CFrame * CFrame.new(0, height, -12)
+        character:PivotTo(target * root.CFrame:ToObjectSpace(character:GetPivot()))
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        log("Teleported to the castle stage.")
+        refresh()
+    end})
+
+
     dashboard:Button({Title = "Pause everything", Desc = "F8  /  Stop automation and Anti AFK", Icon = "square", Color = Color3.fromRGB(145,55,80), Callback = stopAll})
     dashboard:Paragraph({Title = "ALWAYS WITHIN REACH", Desc = "F8  /  Pause everything     P  /  Pause trading\nRight Ctrl  /  Hide or show NOVA", Icon="keyboard"})
 
