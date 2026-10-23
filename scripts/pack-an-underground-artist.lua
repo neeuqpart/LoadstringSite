@@ -1743,11 +1743,12 @@ do
         end
     end
 end
-table.sort(packNames, function(a, b)
+local function packRarerFirst(a, b)
     local left, right = packOdds[a] or 1, packOdds[b] or 1
     if left == right then return a < b end
     return left > right
-end)
+end
+table.sort(packNames, packRarerFirst)
 local selected = {}
 for _, name in ipairs(packNames) do selected[name] = true end
 
@@ -19187,9 +19188,11 @@ local spyState
 local spyLoading, spyLoaded = false, false
 local refresh = function() end
 local antiAfk = {enabled = false, connection = nil, toggle = nil, pulses = 0, panel = nil}
-local noclip = {connection = nil, toggle = nil, saved = {}}
+local noclip = {connection = nil, added = nil, character = nil, toggle = nil, saved = {}}
 local function stopNoclip()
     if noclip.connection then noclip.connection:Disconnect(); noclip.connection = nil end
+    if noclip.added then noclip.added:Disconnect(); noclip.added = nil end
+    noclip.character = nil
     for part, original in pairs(noclip.saved) do
         if part.Parent then part.CanCollide = original end
     end
@@ -19197,21 +19200,29 @@ local function stopNoclip()
 end
 local function startNoclip()
     stopNoclip()
+    local player = game:GetService("Players").LocalPlayer
+    local function track(part)
+        if part:IsA("BasePart") and noclip.saved[part] == nil then
+            noclip.saved[part] = part.CanCollide
+        end
+    end
     noclip.connection = game:GetService("RunService").Stepped:Connect(function()
         if not alive then return end
-        local character = game:GetService("Players").LocalPlayer.Character
+        local character = player.Character
+        if character ~= noclip.character then
+            if noclip.added then noclip.added:Disconnect(); noclip.added = nil end
+            noclip.character = character
+            if character then
+                noclip.added = character.DescendantAdded:Connect(track)
+                for _, part in ipairs(character:GetDescendants()) do track(part) end
+            end
+        end
         for part, original in pairs(noclip.saved) do
             if not character or not part:IsDescendantOf(character) then
                 if part.Parent then part.CanCollide = original end
                 noclip.saved[part] = nil
-            end
-        end
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    if noclip.saved[part] == nil then noclip.saved[part] = part.CanCollide end
-                    part.CanCollide = false
-                end
+            elseif part.CanCollide then
+                part.CanCollide = false
             end
         end
     end)
@@ -19806,17 +19817,17 @@ local ok, setupError = xpcall(function()
     end
     local function nextOwnedPack(counts, now)
         -- New inventory pack types join the rotation without restarting NOVA.
+        local added = false
         for name in pairs(counts) do
             if type(name) == "string" and selected[name] == nil then
                 selected[name] = true
                 table.insert(packNames, name)
+                added = true
             end
         end
-        table.sort(packNames, function(a, b)
-            local left, right = packOdds[a] or 1, packOdds[b] or 1
-            if left == right then return a < b end
-            return left > right
-        end)
+        if added then
+            table.sort(packNames, packRarerFirst)
+        end
         for _, name in ipairs(packNames) do
             if selected[name] and (tonumber(counts[name]) or 0) > 0 and now >= (packRetryAfter[name] or 0) then
                 return name
